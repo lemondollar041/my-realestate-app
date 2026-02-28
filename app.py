@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import io
 
-# ページ構成：高級感のあるタイトルとレイアウト
+# ページ構成
 st.set_page_config(page_title="湾岸不動産マーケット・アナリティクス", layout="wide")
 
 # Secretsから安全にキーを読み込む
@@ -37,19 +37,24 @@ with st.sidebar:
     areas = st.multiselect("対象エリア", ["勝どき・月島", "晴海", "豊洲", "有明", "芝浦・港南"], default=["豊洲", "晴海"])
     years = st.select_slider("分析期間", options=list(range(2015, 2028)), value=(2018, 2026))
 
+# API消費を抑えるためのキャッシュ関数
+@st.cache_data(show_spinner=False)
+def get_analysis_data(property_name, p_type, rate, selected_areas, y_range, _api_key):
+    genai.configure(api_key=_api_key)
+    model = genai.GenerativeModel('gemini-1.5-flash') # 安定版を使用
+    
+    prop_info = f"特に「{property_name}」の資産性を考慮してください。" if property_name else ""
+    prompt = f"{prop_info} 期間:{y_range[0]}-{y_range[1]}年, エリア:{','.join(selected_areas)}, タイプ:{p_type}, 金利:{rate}%. 最初はCSV(時期,エリア名...,要因)を出し、次に'---SUMMARY---'と書いてから日本語で解説して。"
+    
+    response = model.generate_content(prompt)
+    return response.text
+
 # メイン分析ロジック
 if st.button("プロフェッショナル分析を実行"):
     with st.spinner("AIが市場データを照合中..."):
         try:
-            genai.configure(api_key=API_KEY)
-            # 安定性の高い gemini-1.5-flash を使用
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            
-            prop_info = f"特に「{target_property}」の資産性を考慮してください。" if target_property else ""
-            prompt = f"{prop_info} 期間:{years[0]}-{years[1]}年, エリア:{','.join(areas)}, タイプ:{prop_type}, 金利:{interest_rate}%. 最初はCSV(時期,エリア名...,要因)を出し、次に'---SUMMARY---'と書いてから日本語で解説して。"
-            
-            response = model.generate_content(prompt)
-            parts = response.text.split("---SUMMARY---")
+            full_text = get_analysis_data(target_property, prop_type, interest_rate, areas, years, API_KEY)
+            parts = full_text.split("---SUMMARY---")
             
             # グラフ表示
             df = pd.read_csv(io.StringIO(parts[0].strip()))
@@ -61,10 +66,9 @@ if st.button("プロフェッショナル分析を実行"):
             if len(parts) > 1:
                 st.markdown(f"<div class='report-box'><h3>🖋️ エグゼクティブ・サマリー</h3><p>{parts[1].strip()}</p></div>", unsafe_allow_html=True)
             
-            # 保存ボタン
             csv_buffer = io.StringIO()
             df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
             st.download_button("📥 データをCSVで保存", data=csv_buffer.getvalue(), file_name="market_report.csv", mime="text/csv")
 
         except Exception as e:
-            st.error(f"現在、利用制限がかかっています。数分待ってから再度お試しください。({e})")
+            st.error(f"現在、APIの利用制限（429）がかかっています。数分〜1時間ほど待ってから再度お試しください。({e})")
