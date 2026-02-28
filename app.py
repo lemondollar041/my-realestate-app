@@ -4,68 +4,67 @@ import pandas as pd
 import plotly.express as px
 import io
 
-# 1. ページ設定：高級感のあるデザインを維持
+# ページ構成：高級感のあるタイトルとレイアウト
 st.set_page_config(page_title="湾岸不動産マーケット・アナリティクス", layout="wide")
 
-# 保管庫（Secrets）から安全にAPIキーを読み込む
+# Secretsから安全にキーを読み込む
 try:
-    MY_GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+    API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
-    st.error("StreamlitのSettings > Secrets で GEMINI_API_KEY を設定してください。")
+    st.error("設定画面の 'Secrets' に GEMINI_API_KEY を登録してください。")
     st.stop()
 
-# カスタムCSS：シャンパンゴールドとダークネイビー
+# 高級感を演出するカスタムデザイン
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
-    h1 { color: #D4AF37; font-family: 'Hiragino Sans', 'Meiryo', sans-serif; font-weight: 800; }
-    .stButton>button { background-color: #D4AF37; color: white; border-radius: 8px; font-weight: bold; width: 100%; border: none; padding: 15px; font-size: 18px; }
-    .report-box { background-color: #1c212d; padding: 25px; border-radius: 15px; border-left: 5px solid #D4AF37; color: #e0e0e0; line-height: 1.8; margin-top: 20px; }
+    h1 { color: #D4AF37; font-family: 'Hiragino Sans', sans-serif; font-weight: 800; }
+    .stButton>button { background-color: #D4AF37; color: white; border-radius: 8px; font-weight: bold; width: 100%; border: none; padding: 15px; }
+    .report-box { background-color: #1c212d; padding: 25px; border-radius: 15px; border-left: 5px solid #D4AF37; color: #e0e0e0; line-height: 1.8; }
     </style>
     """, unsafe_allow_html=True)
-
-AREA_COLORS = {"勝どき・月島": "#4A90E2", "晴海": "#F5A623", "豊洲": "#50E3C2", "芝浦・港南": "#EB5757"}
 
 st.title("🏙️ 湾岸不動産マーケット・アナリティクス")
 st.markdown("<p style='color: #888;'>AIアルゴリズムによる資産価値推移と特定物件のポテンシャル分析</p>", unsafe_allow_html=True)
 st.divider()
 
-# --- サイドバー：詳細設定 ---
+# サイドバー設定
 with st.sidebar:
     st.markdown("<h2 style='color: #D4AF37;'>分析パラメータ</h2>", unsafe_allow_html=True)
     target_property = st.text_input("特定のマンション名（任意）", placeholder="例：パークホームズ豊洲")
-    prop_type = st.radio("アセット種別", ["標準", "3LDK / ファミリー", "1LDK / コンパクト"], index=1)
+    prop_type = st.radio("物件種別", ["標準（全体）", "ファミリー向け（3LDK〜）", "コンパクト（1LDK〜）"], index=1)
     interest_rate = st.slider("想定市場金利 (%)", 0.0, 3.0, 0.5, 0.1)
     areas = st.multiselect("対象エリア", ["勝どき・月島", "晴海", "豊洲", "有明", "芝浦・港南"], default=["豊洲", "晴海"])
     years = st.select_slider("分析期間", options=list(range(2015, 2028)), value=(2018, 2026))
 
-# --- メインロジック ---
+# メイン分析ロジック
 if st.button("プロフェッショナル分析を実行"):
-    with st.spinner("AIが最新の市場トレンドを抽出しています..."):
+    with st.spinner("AIが市場データを照合中..."):
         try:
-            genai.configure(api_key=MY_GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            genai.configure(api_key=API_KEY)
+            # 安定性の高い gemini-1.5-flash を使用
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
-            prop_info = f"特に「{target_property}」という物件の資産性を重点的に考慮してください。" if target_property else ""
-            prompt = f"{prop_info} 期間:{years[0]}-{years[1]}年, エリア:{','.join(areas)}, タイプ:{prop_type}, 金利:{interest_rate}%. CSV(時期,エリア名...,要因)と、その後に'---SUMMARY---'を挟んで日本語で解説を出力して。"
+            prop_info = f"特に「{target_property}」の資産性を考慮してください。" if target_property else ""
+            prompt = f"{prop_info} 期間:{years[0]}-{years[1]}年, エリア:{','.join(areas)}, タイプ:{prop_type}, 金利:{interest_rate}%. 最初はCSV(時期,エリア名...,要因)を出し、次に'---SUMMARY---'と書いてから日本語で解説して。"
             
             response = model.generate_content(prompt)
             parts = response.text.split("---SUMMARY---")
-            csv_part = parts[0].strip()
-            summary_part = parts[1].strip() if len(parts) > 1 else "要約の生成に失敗しました。"
-
-            # グラフとレポート
-            df = pd.read_csv(io.StringIO(csv_part))
+            
+            # グラフ表示
+            df = pd.read_csv(io.StringIO(parts[0].strip()))
             st.subheader("📊 市場強気スコア推移")
-            area_cols = [c for c in df.columns if c not in ["時期", "主な市場要因"]]
-            fig = px.line(df, x="時期", y=area_cols, color_discrete_map=AREA_COLORS, markers=True, template="plotly_dark")
+            fig = px.line(df, x="時期", y=[c for c in df.columns if c not in ["時期", "主な市場要因"]], markers=True, template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown(f"<div class='report-box'><h3>🖋️ エグゼクティブ・サマリー</h3><p>{summary_part}</p></div>", unsafe_allow_html=True)
+            # 解説表示
+            if len(parts) > 1:
+                st.markdown(f"<div class='report-box'><h3>🖋️ エグゼクティブ・サマリー</h3><p>{parts[1].strip()}</p></div>", unsafe_allow_html=True)
             
+            # 保存ボタン
             csv_buffer = io.StringIO()
             df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-            st.download_button("📥 データをCSVで保存", data=csv_buffer.getvalue(), file_name="wangan_report.csv", mime="text/csv")
+            st.download_button("📥 データをCSVで保存", data=csv_buffer.getvalue(), file_name="market_report.csv", mime="text/csv")
 
         except Exception as e:
-            st.error(f"分析エンジンでエラーが発生しました。({e})")
+            st.error(f"現在、利用制限がかかっています。数分待ってから再度お試しください。({e})")
